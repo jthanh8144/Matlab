@@ -1,6 +1,6 @@
 % chuong trinh lam tron 1 tin hieu de khu nhieu 
 % dung bo loc lay trung binh cong 3 diem (3-points moving-averaging filter)
-% co PTSP: y[n] = 1/3(x[n-1]+x[n]+x[n+1])
+% co PTSP: y[n] = 1/3(x[n]+x[n-1]+x[n-2])
 
 clf;                            % clear figures
 L = 51;                         % do dai tin hieu
@@ -20,16 +20,16 @@ legend('d[n]','s[n]','x[n]');
 title('Noise d[n] vs. original s[n] vs. noisy signals x[n]');
 
 % cach 1: dich thoi gian, lam tron tin hieu theo CT y[n] = 1/3(x[n-1]+x[n]+x[n+1])
-x1 = [x(2:L), 0]        % x1[n] = x[n+1]
-x2 = [x]                  % x2[n] = x[n]
-x3 = [0, x(1:L-1)]    % x3[n] = x[n-1]
+x1 = [x]        % x1[n] = x[n]
+x2 = [0, x(1:L-1)]                % x2[n] = x[n-1]
+x3 = [zeros(1, 2), x(1:L-2)]   % x3[n] = x[n-2]
 
 subplot(3,2,2)
-% ve do thi x[n-1],x[n],x[n+1]
+% ve do thi x[n],x[n-1],x[n-2]
 plot(n,x1,'r-.',n,x2,'b-.',n,x3,'k-.');
 xlabel('Chi so thoi gian n');
 ylabel('Bien do');
-legend('x[n+1]','x[n]','x[n-1]');
+legend('x[n]','x[n-1]','x[n-2]');
 title('time-shifted signals of x[n]');
 
 y1 = 1/3*(x1+x2+x3)     % lay trung binh voi M=1
@@ -44,7 +44,7 @@ title('3-points smoothed y1[n] vs. original signal s[n]');
 % cach 2: dung ham tinh tong chap conv()
 % ghep noi tiep he som 1 don vi va he lay TB cong nhan qua
 h = 1/3 * ones(1,3);    % h[n] = [1/3, 1/3, 1/3]
-y2 = conv(x1, h);         % y2[n] = x1[n] * h[n]
+y2 = conv(x2, h);         % y2[n] = x1[n] * h[n]
 % ve do thi y2[n] vs. s[n]
 figure(3)
 %hold on
