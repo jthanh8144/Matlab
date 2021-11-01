@@ -48,11 +48,11 @@ y2 = conv(x1, h);         % y2[n] = x1[n] * h[n]
 
 % add
 % cach 3: dung for
-y3 = [0 x 0];
-for i = 2:(length(y3)-1)
-    y3(i) = (y3(i-1) + y3(i) + y3(i+1))/3;
+x0 = [0 x 0];
+y3 = zeros(1, 51);
+for i = 2 : (length(x0) - 1)
+    y3(i-1) = (x0(i) + x0(i-1) + x0(i+1))/3;
 end
-y3 = y3(2:(length(y3)-1));
 
 % ve do thi y2[n] vs. s[n]
 %hold on
