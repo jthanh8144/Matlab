@@ -2,31 +2,32 @@ clear;
 close all;
 frameTime = 0.02;
 frameShift = 0.01;
-F0_Min = 70;
-F0_Max = 400;
-% path = 'D:\Down\Kì 5\XLTH\CK\TinHieuHuanLuyen\';
-% file = { '01MDA', '02FVA', '03MAB', '06FTB' };
-path = 'D:\Down\Kì 5\XLTH\CK\TinHieuKiemThu\';
-file = { '30FTN', '42FQT', '44MTT', '45MDV' };
+N = 26; % 13 26 39
+K = 5; % 2 -> 5
+path = 'D:\Down\Kì 5\XLTH\ThucHanh\TH1\NguyenAmHuanLuyen-16k\';
+folder = { '01MDA', '02FVA', '03MAB', '04MHB', '05MVB', '06FTB', '07FTC', '08MLD', '09MPD', '10MSD', '11MVD', '12FTD', '14FHH', ...
+                '15MMH', '16FTH', '17MTH', '18MNK', '19MXK', '20MVK', '21MTL', '22MHL' };
+pathKT = 'D:\Down\Kì 5\XLTH\ThucHanh\TH1\NguyenAmKiemThu-16k\';
+folderKT = { '23MTL', '24FTL', '25MLM', '27MCM', '28MVN', '29MHN', '30FTN', '32MTP', '33MHP', '34MQP', '35MMQ', '36MAQ', ...
+                    '37MDS', '38MDS', '39MTS', '40MHS', '41MVS', '42FQT', '43MNT', '44MTT', '45MDV' };
+file = { 'a', 'e', 'i', 'o', 'u' };
 
-% i = 3;
-for i = 1 : 4
-    figure('Name', char(file(i)));
-    filename = char(strcat(path, file(i), '.wav'));
-    [y, Fs] = audioread(filename);
-    [localSpeech, indexSpeech] = voicedDetection(y, Fs, frameTime, frameShift, path, file(i));
-    
-    f0 = findF0(y, localSpeech, indexSpeech, Fs, frameTime, frameShift, F0_Max, F0_Min, 2048);
-    tt = (frameTime - frameShift) : (frameTime - frameShift) : (frameTime - frameShift) * length(f0);
-    subplot(4, 1, 1);
-    f0 = medianFilter(f0, 3);
-    plot(tt, f0, '.');
-    xlabel('Time(s)');
-    ylabel('F0 value(Hz)');
-    title('Fundamental frequency (F0)');
-%     
-%     [F0_mean, F0_std, deltaMean, deltaStd] = calDelta(f0, path, file(i))
-end
+filename = char(strcat(path, 'fingerprints.xlsx'));
+
+% uncomment line 18 when training
+getFingerprints(frameTime, frameShift, N, K, path, folder, file);
+
+% uncomment line 21 -> 23 when testing
+fingerprints = readmatrix(filename);
+[result, accuracy] = runTesting(fingerprints, pathKT, folderKT, file, frameTime, frameShift, N, K);
+plotFingerprints(fingerprints, K, file);
+
+% i = 1;
+% j = 1;
+% filename = char(strcat(path, folder(i), '\',  file(j), '.wav'));
+% [y, Fs] = audioread(filename);
+% [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
+% result = mfccOf1File(y, Fs, localSpeech, N);
 
 % Chia frame
 % Input:
@@ -45,7 +46,7 @@ function [data, frameCount] = frameDivide(y, Fs, frameTime, frameShift)
     temp = 0;
     for i = 1 : frameCount
         data(i, :) = y(temp + 1 : temp + frameLength);
-        temp = temp + shiftLength;
+        temp = temp + (frameLength - shiftLength);
     end
 end
 
@@ -67,7 +68,7 @@ end
 %   w: tham so tinh nguong, nguoi dung tu khoi tao
 % Output:
 %   threshold: nguong STE cua tin hieu
-function threshold = findThreshold(ste, w)
+function threshold = findThresholdSTE(ste, w)
     [histogram, xValue] = hist(ste, length(ste));
     maxIndex1 = 0;
     maxIndex2 = 0;
@@ -91,44 +92,45 @@ function threshold = findThreshold(ste, w)
     threshold = (w * maxHist1 + maxHist2) / (w + 1);
 end
 
+function F0_med = medianFilter(F0, N)
+    for i = 1:N
+        F0 = [F0(1); F0; F0(length(F0))];
+    end
+    F0_med = zeros(length(F0), 1);
+    for i = N+1 : length(F0)-N
+        t = [];
+        for j = -N:N
+            t = [t F0(i+j)];
+        end
+        t = sort(t);
+        F0_med(i) = t(round((2*N + 1) / 2));
+    end
+    F0_med = F0_med(N+1:end-N);
+end
+
 % Phan biet nguyen am - khoang lang
 % Input:
 %   y: mang gia tri cua tin hieu
 %   Fs: tan so lay mau (Hz)
 %   frameTime: do dai frame (s)
 %   frameShift: do lech frame (s)
-%   path: duong dan chua file tin hieu
 %   file: ten file tin hieu
 % Output:
 %   localSpeech: mang thoi gian thuc cua nguyen am (s)
 %   indexSpeech: mang chi so frame cua nguyen am
-function [localSpeech, indexSpeech] = voicedDetection(y, Fs, frameTime, frameShift, path, file)
+function [localSpeech, indexSpeech] = voicedDetection(y, Fs, frameTime, frameShift)
     [data, frameCount] = frameDivide(y, Fs, frameTime, frameShift);
     ste = shortTimeEnergy(data, frameCount);
     ste=ste./max(ste);
-    threshold = findThreshold(ste, 10);
-    t = (frameTime - frameShift) : (frameTime - frameShift) : (frameTime - frameShift) * length(ste);
-%     subplot(3, 1, 1);
-%     plot(t, ste,'r');
-%     legend('Short time energy');
-%     title('Short time energy');
-%     xlabel('Time (s)');
-    t = [0 : 1/Fs : length(y)/Fs];
-    t = t(1 : end-1);
-    subplot(4, 1, 2);
-    p1 = plot(t, y);
-    hold on;
-    [lab, ~, ~] = readFile(path, file);
-    x = -1:1;
-    for i = 1 : length(lab)
-        p2 = plot(lab(i) * ones(size(x)), x, 'r');
-    end
+    threshold = findThresholdSTE(ste, 10);
+    
     tick = zeros(frameCount, 1);
     for i = 1 : length(ste)
         if (ste(i) >= threshold)
             tick(i) = 1;
         end
     end
+    tick = medianFilter(tick, 3);
     for i = 2 : length(tick) - 1
         if (tick(i) ~= tick(i-1) && tick(i) ~= tick(i+1))
             tick(i) = tick(i-1);
@@ -154,177 +156,153 @@ function [localSpeech, indexSpeech] = voicedDetection(y, Fs, frameTime, frameShi
     end
     indexSpeech(n) = index(i);
     localSpeech = (frameTime - frameShift) * indexSpeech;
-    % ve do thi phan doan tieng noi va khoang lang 
-    for i = 1:length(localSpeech)
-        p3 = plot(localSpeech(i) * ones(size(x)), x,'g');
-    end
-    hold off; 
-    legend([p1, p2, p3], { 'Signal', 'File lab', 'Algorithm' });
-    title('Voiced/Unvoiced detection');
-    xlabel('Time (s)');
 end
 
-% Ham cua so hamming
-% Input:
-%   M: do dai cua so hamming (mau)
-% Output:
-%   w: cua so hamming
-function w = myHamming(M)
-    w = .54 - .46*cos(2*pi*(0:M-1)'/(M-1));
-end
-
-% Tim F0 cua tin hieu
+% Tinh MFCC cua 1 tin hieu
 % Input:
 %   y: mang gia tri cua tin hieu
-%   localSpeech: mang thoi gian thuc cua nguyen am (s)
-%   indexSpeech: mang chi so frame cua nguyen am
 %   Fs: tan so lay mau (Hz)
+%   localSpeech: mang thoi gian thuc cua nguyen am (s)
+%   N: so dac trung MFCC
+% Output:
+%   result: mang gia tri MFCC cua tin hieu
+function result = mfccOf1File(y, Fs, localSpeech, N)
+    time = (localSpeech(2) - localSpeech(1)) / 3;
+    sTime = localSpeech(1) + time;
+    eTime = localSpeech(1) + 2 * time;
+    result = zeros(N, 1);
+%     S = melSpectrogram(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
+%                                         'Window', hamming(floor(Fs * 0.03),'periodic'), ...
+%                                         'OverlapLength', floor(Fs * 0.02), ...
+%                                         'FFTLength', 2048, ...
+%                                         'NumBands', N);
+    S = mfcc(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
+                    'LogEnergy','Ignore', ...
+                    'NumCoeffs', N);
+    [count, ~] = size(S);
+    for k = 1 : count
+        for index = 1 : N
+            result(index) = result(index) + S(k, index);
+        end
+    end
+    result = result ./ count;
+end
+
+% Tim vector dac trung de xac dinh nguyen am
+% Input:
 %   frameTime: do dai frame (s)
 %   frameShift: do lech frame (s)
-%   F0_Max: tan so gioi han lon nhat (Hz)
-%   F0_Min: tan so gioi han nho nhat (Hz)
-%   N: so diem tinh fft
-% Output:
-%   f0: mang cac gia tri f0 (Hz)
-function f0 = findF0(y, localSpeech, indexSpeech, Fs, frameTime, frameShift, F0_Max, F0_Min, N)
-    frameLength = frameTime * Fs;
-    [frames, countF] = frameDivide(y, Fs, frameTime, frameShift);
-    p = abs(fft(frames(end - 10, :)', N));
-    p = p(1:length(p)/2+1);
-    p(2 : end - 1) = 2 * p(2 : end - 1);
-    freq = linspace(0, Fs/2, length(p));
-%     subplot(5, 1, 4);
-%     plot(freq, p);
-%     xlabel('Frequency (Hz)');
-%     ylabel('FFT value');
-%     legend('Magnitude spectrum');
-%     title('FFT value of 1 frame unvoice');
-    f0 = zeros(countF, 1);
-    h = myHamming(frameLength);
-    for i = 1 : 2 : length(indexSpeech) - 1
-        startIndex = indexSpeech(i) - 1;
-        yy = y(floor(localSpeech(i) * Fs) : floor(localSpeech(i+1) * Fs));
-        [data, dataCount] = frameDivide(yy, Fs, frameTime, frameShift);
-        check = floor(dataCount/2);
-        for j = 1 : dataCount
-            frame = data(j, :)';
-            frame = h.*frame;
-            p = abs(fft(frame, N));
-            p = p(1:length(p)/2+1);
-            p(2 : end - 1) = 2 * p(2 : end - 1);
-            freq = linspace(0, Fs/2, length(p));
-            if (findpeaks(p, freq, 'NPeaks', 1, 'SortStr', 'descend') > 1)
-                [yValue, yPeak] = findpeaks(p, freq, 'MinPeakHeight', 2);
-            else
-                [yValue, yPeak] = findpeaks(p, freq, 'MinPeakHeight', 0.5);
-            end
-            if (check == j)
-%                 subplot(5, 1, 5);
-%                 plot(freq, p, yPeak, yValue, 'x');
-%                 xlabel('Frequency (Hz)');
-%                 ylabel('FFT value');
-%                 legend('Magnitude spectrum', 'Harmonics mark');
-%                 title('FFT value of 1 frame voice');
-                check = 0;
-            end
-            tCount = 0;
-            tF0 = 0;
-            for k = 1 : length(yPeak) - 1
-                temp = yPeak(k+1) - yPeak(k);
-                if (temp < F0_Max && temp > F0_Min)
-                    tCount = tCount + 1;
-                    tF0 = tF0 + temp;
-                end
-            end
-            f0(startIndex + j) = tF0 / tCount;
-        end
-    end
-end
-
-% Loc trung vi
-% Input:
-%   F0: mang cac gia tri f0 (Hz)
-%   N: so phan tu lay o hai dau gia tri can tinh trung vi
-% Output:
-%   F0_med: mang gia tri f0 (Hz) da loc
-function F0_med = medianFilter(F0, N)
-    for i = 1:N
-        F0 = [F0(1); F0; F0(length(F0))];
-    end
-    F0_med = zeros(length(F0), 1);
-    for i = N+1 : length(F0)-N
-        t = [];
-        for j = -N:N
-            t = [t F0(i+j)];
-        end
-        t = sort(t);
-        F0_med(i) = t(round((2*N + 1) / 2));
-    end
-    F0_med = F0_med(N+1:end-N);
-end
-
-% Doc du lieu tu file .lab
-% Input:
+%   N: so dac trung MFCC
+%   K: so cum kmean
 %   path: duong dan chua file tin hieu
+%   folder: ten folder chua file tin hieu
 %   file: ten file tin hieu
-% Output:
-%   lab: mang chua cac gia tri thoi gian cua nguyen am (s)
-%   meanLab: gia tri F0_mean cua file .lab (Hz)
-%   stdLab: gia tri F0_std cua file .lab (Hz)
-function [lab, meanLab, stdLab] = readFile(path, file)
-    filename = char(strcat(path, file, '.lab'));
-    f = fopen(filename, 'r');
-    line = {};
-    i = 0;
-    while ~feof(f)
-       i = i + 1;
-       line(i) = cellstr(fgets(f));
+% Ouput:
+%   fingerprints: dau van tay dung de xac dinh nguyen am
+function fingerprints = getFingerprints(frameTime, frameShift, N, K, path, folder, file)
+    MFCC = zeros(length(folder), N);
+    fingerprints = zeros(length(file) * K, N);
+    index = 1;
+    for j = 1 : length(file) 
+        for i = 1 : length(folder)
+            filename = char(strcat(path, folder(i), '\',  file(j), '.wav'));
+            [y, Fs] = audioread(filename);
+            [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
+            MFCC(i, :) = mfccOf1File(y, Fs, localSpeech, N)';
+        end
+        rng(1);
+        [~, C] = kmeans(MFCC, K);
+        fingerprints(index : index + K - 1, :) = C;
+        index = index + K;
     end
-    k = 1;
-    for j = 2 : 2 : 10
-        vowel = split(line{j});
-        lab(k) = str2double(vowel(1));
-        lab(k+1) = str2double(vowel(2));
-        k = k + 2;
-    end
-    meanLab = split(line(i-1));
-    meanLab = str2double(meanLab(2));
-    stdLab = split(line(i));
-    stdLab = str2double(stdLab(2));
-    fclose(f);
+    filename = char(strcat(path, 'fingerprints.xlsx'));
+    delete(filename);
+    writetable(array2table(fingerprints), filename, "WriteVariableNames", false);
 end
 
-% Tinh sai so cua thuat toan so voi file .lab
+% Ve vector dac trung
 % Input:
-%   F0: mang cac gia tri f0 (Hz)
-%   path: duong dan chua file tin hieu
+%   fingerprints: dau van tay dung de xac dinh nguyen am
+%   K: so cum kmean
 %   file: ten file tin hieu
+function plotFingerprints(fingerprints, K, file)
+    [j, ~] = size(fingerprints);
+    figure('Name', 'Fingerprints of 5 vowels');
+    index = 1;
+    for i = 1 : K : j
+        subplot(5, 1, index);
+        plot(fingerprints(i : i + K - 1, :)');
+        title(char(file(index)));
+        index = index + 1;
+    end
+end
+
+% Tinh khoang cach eiclidean
+% Input:
+%   x: vector x
+% y: vector y
 % Output:
-%   F0_mean: gia tri F0 trung binh cua thuat toan (Hz)
-%   F0_std: gia tri do lech chuan F0 cua thuat toan (Hz)
-%   deltaMean: gia tri do lech F0 trung binh cua thuat toan (Hz)
-%   deltaStd: gia tri do lech do lech chuan F0  cua thuat toan (Hz)
-function [F0_mean, F0_std, deltaMean, deltaStd] = calDelta(F0, path, file)
-    F0_mean = 0;
+%   d: khoang cach cua 2 vector x va y
+function d = euclidean(x, y)
+    d = sum((x - y).^2).^0.5;
+end
+
+% Tinh do chinh xac cua thuat toan
+% Input:
+%   result: ket qua cua thuat toan
+%   file: ten file tin hieu
+%   folderKT: ten folder chua file tin hieu kiem thu 
+% Output:
+%   accuracy: do chinh xac cua thuat toan
+function accuracy = calAccuracy(result, file, folderKT)
     count = 0;
-    for i = 1 : length(F0)
-        if F0(i) > 0
-            count = count + 1;
-            F0_mean = F0_mean + F0(i);
+    for i = 1 : length(result)
+        for j = 1 : length(file)
+            if (strcmp(result(i, j), file(j)) == true)
+                count = count + 1;
+            end
         end
     end
-    F0_mean = round(F0_mean / count, 2);
-    F0_std = 0;
-    for i = 1 : length(F0)
-        if F0(i) > 0
-            F0_std = F0_std + (F0(i) - F0_mean)^2;
-        end
-    end
-    F0_std = round(sqrt(F0_std / count), 2);
-    [~, meanLab, stdLab] = readFile(path, file);
-    deltaMean = abs(F0_mean - meanLab);
-    deltaStd = abs(F0_std - stdLab);
+    accuracy = round(count / (length(file) * length(folderKT))  * 100, 2);
 end
+ 
+% Chay file tin hieu kiem thu
+% Input:
+%   fingerprints: dau van tay dung de xac dinh nguyen am
+%   pathKT: duong dan chua file tin hieu kiem thu
+%   folderKT: ten folder chua file tin hieu kiem thu 
+%   file: ten file tin hieu
+%   frameTime: do dai frame (s)
+%   frameShift: do lech frame (s)
+%   N: so dac trung MFCC
+%   K: so cum kmean
+% Output:
+%   result: ket qua cua thuat toan
+%   accuracy: do chinh xac cua thuat toan
+function [result, accuracy] = runTesting(fingerprints, pathKT, folderKT, file, frameTime, frameShift, N, K)
+    [count, ~] = size(fingerprints);
+    t = zeros(1, count);
+    result = cell(length(folderKT), length(file));
+    % i = 1;
+    % j = 1;
+    for i = 1 : length(folderKT)
+        for j = 1 : length(file)
+            filename = char(strcat(pathKT, folderKT(i), '\',  file(j), '.wav'));
+            [y, Fs] = audioread(filename);
+            [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
+            MFCC = mfccOf1File(y, Fs, localSpeech, N);
+            for k = 1 : count
+                t(k) = euclidean(MFCC', fingerprints(k, :));
+            end
+            [~, index] = min(t);
+            result(i, j) = file(floor((index - 1) / K) + 1);
+        end
+    end
+     accuracy = calAccuracy(result, file, folderKT)
+end
+
+
+
 
 
 
