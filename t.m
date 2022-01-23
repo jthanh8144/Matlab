@@ -22,13 +22,6 @@ fingerprints = readmatrix(filename);
 [result, accuracy] = runTesting(fingerprints, pathKT, folderKT, file, frameTime, frameShift, N, K);
 plotFingerprints(fingerprints, K, file);
 
-% i = 1;
-% j = 1;
-% filename = char(strcat(path, folder(i), '\',  file(j), '.wav'));
-% [y, Fs] = audioread(filename);
-% [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
-% result = mfccOf1File(y, Fs, localSpeech, N);
-
 % Chia frame
 % Input:
 %   y: mang gia tri cua tin hieu
@@ -171,11 +164,6 @@ function result = mfccOf1File(y, Fs, localSpeech, N)
     sTime = localSpeech(1) + time;
     eTime = localSpeech(1) + 2 * time;
     result = zeros(N, 1);
-%     S = melSpectrogram(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
-%                                         'Window', hamming(floor(Fs * 0.03),'periodic'), ...
-%                                         'OverlapLength', floor(Fs * 0.02), ...
-%                                         'FFTLength', 2048, ...
-%                                         'NumBands', N);
     S = mfcc(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
                     'LogEnergy','Ignore', ...
                     'NumCoeffs', N);

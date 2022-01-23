@@ -1,9 +1,10 @@
 clear;
 close all;
-frameTime = 0.02;
-frameShift = 0.01;
+frameTime = 0.03;
+frameShift = 0.02;
 N = 13; % 13 26 39
-K = 5; % 2 -> 5
+K = 4; % 2 -> 5
+NFFT = 1024;
 path = 'D:\Down\Kì 5\XLTH\ThucHanh\TH1\NguyenAmHuanLuyen-16k\';
 folder = { '01MDA', '02FVA', '03MAB', '04MHB', '05MVB', '06FTB', '07FTC', '08MLD', '09MPD', '10MSD', '11MVD', '12FTD', '14FHH', ...
                 '15MMH', '16FTH', '17MTH', '18MNK', '19MXK', '20MVK', '21MTL', '22MHL' };
@@ -12,15 +13,16 @@ folderKT = { '23MTL', '24FTL', '25MLM', '27MCM', '28MVN', '29MHN', '30FTN', '32M
                     '37MDS', '38MDS', '39MTS', '40MHS', '41MVS', '42FQT', '43MNT', '44MTT', '45MDV' };
 file = { 'a', 'e', 'i', 'o', 'u' };
 
-filename = char(strcat(path, 'fingerprints.xlsx'));
+% uncomment line 18 when training, when use line 18 comment line 21-22
+% [fingerprints, fftDB] = getFingerprints(frameTime, frameShift, N, K, path, folder, file, NFFT);
+getFingerprints(frameTime, frameShift, N, K, path, folder, file, NFFT);
 
-% uncomment line 18 when training
-getFingerprints(frameTime, frameShift, N, K, path, folder, file);
+% uncomment line 21 -> 24 when testing
+fingerprints = readmatrix(char(strcat(path, 'fingerprints.xlsx')));
+fftDB = readmatrix(char(strcat(path, 'fftDB.xlsx')));
+[result, accuracy, resultFFT, accuracyFFT] = runTesting(fingerprints, fftDB, pathKT, folderKT, file, frameTime, frameShift, N, K, NFFT);
+% plotFigure(fingerprints, fftDB, K, file);
 
-% uncomment line 21 -> 23 when testing
-fingerprints = readmatrix(filename);
-[result, accuracy] = runTesting(fingerprints, pathKT, folderKT, file, frameTime, frameShift, N, K);
-% plotFingerprints(fingerprints, K, file);
 
 % Chia frame
 % Input:
@@ -160,22 +162,38 @@ end
 % Output:
 %   result: mang gia tri MFCC cua tin hieu
 function result = mfccOf1File(y, Fs, localSpeech, N)
-    time = (localSpeech(2) - localSpeech(1)) / 3;
+    time = (localSpeech(2) - localSpeech(1)) / 6;
     sTime = localSpeech(1) + time;
-    eTime = localSpeech(1) + 2 * time;
+    eTime = localSpeech(1) + 5 * time;
     result = zeros(N, 1);
-    S = melSpectrogram(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
-                                        'Window', hamming(floor(Fs * 0.03),'periodic'), ...
-                                        'OverlapLength', floor(Fs * 0.02), ...
-                                        'FFTLength', 2048, ...
-                                        'NumBands', N);
-    [~, count] = size(S);
+    S = mfcc(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, ...
+                    'LogEnergy','Ignore', ...
+                    'NumCoeffs', N);
+    [count, ~] = size(S);
     for k = 1 : count
         for index = 1 : N
-            result(index) = result(index) + S(index, k);
+            result(index) = result(index) + S(k, index);
         end
     end
     result = result ./ count;
+end
+
+function result = fftOf1File(y, Fs, localSpeech, frameTime, frameShift, NFFT)
+    result = zeros(1, NFFT / 2);
+    time = (localSpeech(2) - localSpeech(1)) / 3;
+    sTime = localSpeech(1) + time;
+    eTime = localSpeech(1) + 2 * time;
+    [frames, frameCount] = frameDivide(y(floor(sTime * Fs) : floor(eTime * Fs)), Fs, frameTime, frameShift);
+    h = hamming(frameTime * Fs);
+    for i = 1 : frameCount
+        frame = frames(i, :)';
+        frame = h.*frame;
+        p = abs(fft(frame, NFFT));
+        p = p(1:length(p)/2);
+        p(2 : end - 1) = 2 * p(2 : end - 1);
+        result(1, :) = result(1, :) + p';
+    end
+    result = result ./ frameCount;
 end
 
 % Tim vector dac trung de xac dinh nguyen am
@@ -189,9 +207,11 @@ end
 %   file: ten file tin hieu
 % Ouput:
 %   fingerprints: dau van tay dung de xac dinh nguyen am
-function fingerprints = getFingerprints(frameTime, frameShift, N, K, path, folder, file)
+function [fingerprints, fftDB] = getFingerprints(frameTime, frameShift, N, K, path, folder, file, NFFT)
     MFCC = zeros(length(folder), N);
+    FFT = zeros(length(folder), NFFT / 2);
     fingerprints = zeros(length(file) * K, N);
+    fftDB = zeros(length(file) * K, NFFT / 2);
     index = 1;
     for j = 1 : length(file) 
         for i = 1 : length(folder)
@@ -199,15 +219,25 @@ function fingerprints = getFingerprints(frameTime, frameShift, N, K, path, folde
             [y, Fs] = audioread(filename);
             [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
             MFCC(i, :) = mfccOf1File(y, Fs, localSpeech, N)';
+            FFT(i, :) = fftOf1File(y, Fs, localSpeech, frameTime, frameShift, NFFT);
         end
         rng(1);
         [~, C] = kmeans(MFCC, K);
+        [~, D] = kmeans(FFT, K);
         fingerprints(index : index + K - 1, :) = C;
+        fftDB(index : index + K - 1, :) = D;
         index = index + K;
     end
     filename = char(strcat(path, 'fingerprints.xlsx'));
-    delete(filename);
+    if isfile(filename)
+        delete(filename);
+    end
     writetable(array2table(fingerprints), filename, "WriteVariableNames", false);
+    filename = char(strcat(path, 'fftDB.xlsx'));
+    if isfile(filename)
+        delete(filename);
+    end
+    writetable(array2table(fftDB), filename, "WriteVariableNames", false);
 end
 
 % Ve vector dac trung
@@ -215,13 +245,22 @@ end
 %   fingerprints: dau van tay dung de xac dinh nguyen am
 %   K: so cum kmean
 %   file: ten file tin hieu
-function plotFingerprints(fingerprints, K, file)
+function plotFigure(fingerprints, fftDB, K, file)
     [j, ~] = size(fingerprints);
     figure('Name', 'Fingerprints of 5 vowels');
     index = 1;
     for i = 1 : K : j
         subplot(5, 1, index);
         plot(fingerprints(i : i + K - 1, :)');
+        title(char(file(index)));
+        index = index + 1;
+    end
+    [j, ~] = size(fftDB);
+    figure('Name', 'FFT of 5 vowels');
+    index = 1;
+    for i = 1 : K : j
+        subplot(5, 1, index);
+        plot(fftDB(i : i + K - 1, :)');
         title(char(file(index)));
         index = index + 1;
     end
@@ -269,26 +308,31 @@ end
 % Output:
 %   result: ket qua cua thuat toan
 %   accuracy: do chinh xac cua thuat toan
-function [result, accuracy] = runTesting(fingerprints, pathKT, folderKT, file, frameTime, frameShift, N, K)
+function [result, accuracy, resultFFT, accuracyFFT] = runTesting(fingerprints, fftDB, pathKT, folderKT, file, frameTime, frameShift, N, K, NFFT)
     [count, ~] = size(fingerprints);
-    t = zeros(1, count);
+    t1 = zeros(1, count);
+    t2 = zeros(1, count);
     result = cell(length(folderKT), length(file));
-    % i = 1;
-    % j = 1;
+    resultFFT = cell(length(folderKT), length(file));
     for i = 1 : length(folderKT)
         for j = 1 : length(file)
             filename = char(strcat(pathKT, folderKT(i), '\',  file(j), '.wav'));
             [y, Fs] = audioread(filename);
             [localSpeech, ~] = voicedDetection(y, Fs, frameTime, frameShift);
             MFCC = mfccOf1File(y, Fs, localSpeech, N);
+            FFT = fftOf1File(y, Fs, localSpeech, frameTime, frameShift, NFFT);
             for k = 1 : count
-                t(k) = euclidean(MFCC', fingerprints(k, :));
+                t1(k) = euclidean(MFCC', fingerprints(k, :));
+                t2(k) = euclidean(FFT, fftDB(k, :));
             end
-            [~, index] = min(t);
+            [~, index] = min(t1);
             result(i, j) = file(floor((index - 1) / K) + 1);
+            [~, index] = min(t2);
+            resultFFT(i, j) = file(floor((index - 1) / K) + 1);
         end
     end
      accuracy = calAccuracy(result, file, folderKT)
+     accuracyFFT = calAccuracy(resultFFT, file, folderKT)
 end
 
 
